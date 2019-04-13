@@ -2,7 +2,6 @@ import time
 from typing import Dict
 from enum import IntEnum
 from typing import NamedTuple
-from collections import defaultdict
 from pyroaring import BitMap
 
 from dataclasses import dataclass
@@ -20,6 +19,7 @@ class Side(IntEnum):
 
 @dataclass
 class Order:
+    __slots__ = ('id', 'price', 'original_size', 'size', 'side', 'order_time')
     id: OrderId
     price: Price
     original_size: Decimal
@@ -54,7 +54,7 @@ class Level:
 
 @dataclass
 class OrderBook:
-    # sorted by price/time
+    'sorted by price/time'
     bids: BitMap
     asks: BitMap
     levels: Dict[int, Level]
@@ -79,8 +79,8 @@ class OrderBook:
     def limit_order(self, order: Order):
         if order.size == 0:
             return
-        self.now = time.time()
-        order.order_time = self.now
+        # self.now = time.time()
+        # order.order_time = self.now
         order.id = self.next_order_id()
         if order.side == Side.BUY:
             self.limit_order_buy(order)

@@ -1,5 +1,5 @@
+import os
 import random
-from decimal import Decimal
 import pickle
 from orderbook import Order, Side, OrderBook
 
@@ -12,8 +12,8 @@ class TestOrderBook(OrderBook):
 def gen_random_order():
     return Order(
         random.choice([Side.BUY, Side.SELL]),
-        Decimal(random.randrange(50, 150)),
-        Decimal(random.randrange(1000))
+        random.randrange(50, 150),
+        random.randrange(1000)
     )
 
 
@@ -21,9 +21,11 @@ def gen_tests(n):
     return [gen_random_order() for i in range(n)]
 
 
-# tests = gen_tests(1000000)
-# pickle.dump(tests, open('test.data', 'wb'))
-tests = pickle.load(open('test.data', 'rb'))
+if not os.path.exists('test.data'):
+    tests = gen_tests(1000000)
+    pickle.dump(tests, open('test.data', 'wb'))
+else:
+    tests = pickle.load(open('test.data', 'rb'))
 
 
 def bench(n):
@@ -36,10 +38,4 @@ def bench(n):
 if __name__ == '__main__':
     print('start')
     import timeit
-    print(timeit.repeat('bench(10000)', 'from __main__ import bench', number=100))
-    # import perf
-    # runner = perf.Runner()
-    # runner.timeit(
-    #     name="orderbook",
-    #     stmt="bench(10000)",
-    #     setup="from __main__ import bench")
+    print(timeit.repeat('bench(10000)', 'from __main__ import bench', repeat=5, number=100))
