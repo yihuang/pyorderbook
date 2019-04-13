@@ -57,7 +57,7 @@ class OrderBook:
     'sorted by price/time'
     bids: BitMap
     asks: BitMap
-    levels: Dict[int, Level]
+    levels: Dict[Price, Level]
     orders: Dict[OrderId, Order]
     now: float
 
@@ -114,7 +114,7 @@ class OrderBook:
                 lvl.orders = lvl.orders[offset:]
 
             if not lvl.volume:
-                self.asks.remove(price)
+                self.asks.discard(price)
                 del self.levels[price]
 
             if order.size == 0:
@@ -156,7 +156,7 @@ class OrderBook:
                 lvl.orders = lvl.orders[offset:]
 
             if not lvl.volume:
-                self.bids.remove(price)
+                self.bids.discard(price)
                 del self.levels[price]
 
             if order.size == 0:
@@ -174,9 +174,9 @@ class OrderBook:
     def cancel_order(self, orderid):
         order = self.orders.pop(orderid)
         if order.side == Side.BUY:
-            self.bids.remove(order.price)
+            self.bids.discard(order.price)
         else:
-            self.asks.remove(order.price)
+            self.asks.discard(order.price)
         self.levels[order.price].orders.remove(order)
         self.levels[order.price].volume -= order.size
         self.on_event('cancel', order)
