@@ -10,6 +10,7 @@ from decimal import Decimal
 
 
 OrderId = int
+Price = Decimal
 
 
 class Side(IntEnum):
@@ -20,7 +21,7 @@ class Side(IntEnum):
 @dataclass
 class Order:
     id: OrderId
-    price: Decimal
+    price: Price
     original_size: Decimal
     size: Decimal
     side: Side
@@ -44,7 +45,7 @@ class Trade(NamedTuple):
     takerid: OrderId
     makerid: OrderId
     size: Decimal
-    price: Decimal
+    price: Price
 
 
 @dataclass
@@ -53,7 +54,7 @@ class OrderBook:
     bids: SortedList
     asks: SortedList
     orders: Dict[OrderId, Order]
-    depth: Dict[Decimal, int]
+    depth: Dict[Price, int]
     now: float
 
     def __init__(self):
