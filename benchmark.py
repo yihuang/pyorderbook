@@ -34,9 +34,12 @@ def bench(n):
 
 
 if __name__ == '__main__':
-    import perf
-    runner = perf.Runner()
-    runner.timeit(
-        name="orderbook",
-        stmt="bench(10000)",
-        setup="from __main__ import bench")
+    print('start')
+    import timeit
+    print(timeit.repeat('bench(10000)', 'from __main__ import bench', number=100))
+    # import perf
+    # runner = perf.Runner()
+    # runner.timeit(
+    #     name="orderbook",
+    #     stmt="bench(10000)",
+    #     setup="from __main__ import bench")

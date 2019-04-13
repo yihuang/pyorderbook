@@ -3,14 +3,14 @@ from typing import Dict
 from enum import IntEnum
 from typing import NamedTuple
 from collections import defaultdict
+from pyroaring import BitMap
 
 from dataclasses import dataclass
-from sortedcontainers import SortedList
 from decimal import Decimal
 
 
 OrderId = int
-Price = Decimal
+Price = int
 
 
 class Side(IntEnum):
@@ -33,14 +33,6 @@ class Order:
         self.side = side
 
 
-def order_key(self):
-    return (self.price, self.order_time)
-
-
-def order_key_reversed(self):
-    return (-self.price, self.order_time)
-
-
 class Trade(NamedTuple):
     takerid: OrderId
     makerid: OrderId
@@ -48,21 +40,33 @@ class Trade(NamedTuple):
     price: Price
 
 
+class Level:
+    __slots__ = ('orders', 'volume')
+
+    def __init__(self, orders=None):
+        self.orders = orders or []
+        self.volume = sum(o.size for o in self.orders)
+
+    def append(self, o):
+        self.orders.append(o)
+        self.volume += o.size
+
+
 @dataclass
 class OrderBook:
     # sorted by price/time
-    bids: SortedList
-    asks: SortedList
+    bids: BitMap
+    asks: BitMap
+    levels: Dict[int, Level]
     orders: Dict[OrderId, Order]
-    depth: Dict[Price, int]
     now: float
 
     def __init__(self):
         self._next_order_id = 0
-        self.bids = SortedList(key=order_key_reversed)  # from high to low
-        self.asks = SortedList(key=order_key)  # from low to high
+        self.bids = BitMap()
+        self.asks = BitMap()
+        self.levels = {}
         self.orders = {}
-        self.depth = defaultdict(int)
         self.now = 0
 
     def next_order_id(self):
@@ -70,14 +74,11 @@ class OrderBook:
         return self._next_order_id
 
     def on_event(self, evtname, evt):
-        if evtname == 'trade':
-            self.depth[evt.price] -= evt.size
-        elif evtname == 'new':
-            self.depth[evt.price] += evt.size
-        elif evtname == 'cancel':
-            self.depth[evt.price] -= evt.size
+        pass
 
     def limit_order(self, order: Order):
+        if order.size == 0:
+            return
         self.now = time.time()
         order.order_time = self.now
         order.id = self.next_order_id()
@@ -87,65 +88,95 @@ class OrderBook:
             self.limit_order_sell(order)
 
     def limit_order_buy(self, order: Order):
-        offset = 0
-        for o in self.asks:
-            if order.price < o.price:
+        while self.asks:
+            price = self.asks.min()
+            if order.price < price:
                 # 没有匹配的价格
                 break
 
-            if order.size > o.size:  # o 完全成交
-                self.on_event('trade', Trade(order.id, o.id, o.size, o.price))
-                order.size -= o.size
-                o.size = 0
-                offset += 1
-            else:  # order 完全成交
-                self.on_event('trade', Trade(order.id, o.id, order.size, o.price))
-                o.size -= order.size
-                order.size = 0
+            lvl = self.levels[price]
+            offset = 0
+            for o in lvl.orders:
+                size = min(order.size, o.size)
+                order.size -= size
+                o.size -= size
+                lvl.volume -= size
+
+                self.on_event('trade', Trade(order.id, o.id, size, o.price))
+
                 if o.size == 0:
                     offset += 1
+
+                if order.size == 0:
+                    break
+
+            if offset:
+                lvl.orders = lvl.orders[offset:]
+
+            if not lvl.volume:
+                self.asks.remove(price)
+                del self.levels[price]
+
+            if order.size == 0:
                 break
 
-        for i in range(offset):
-            self.asks.pop(0)
-
         if order.size > 0:
-            self.bids.add(order)
+            if order.price in self.bids:
+                self.levels[order.price].append(order)
+            else:
+                self.bids.add(order.price)
+                self.levels[order.price] = Level([order])
             self.orders[order.id] = order
             self.on_event('new', order)
 
     def limit_order_sell(self, order: Order):
-        offset = 0
-        for o in self.bids:
-            if order.price > o.price:
+        while self.bids:
+            price = self.bids.max()
+            if order.price > price:
                 # 没有匹配的价格
                 break
 
-            if order.size > o.size:  # o 完全成交
-                self.on_event('trade', Trade(order.id, o.id, o.size, o.price))
-                order.size -= o.size
-                o.size = 0
-                offset += 1
-            else:  # order 完全成交
-                self.on_event('trade', Trade(order.id, o.id, order.size, o.price))
-                o.size -= order.size
-                order.size = 0
+            lvl = self.levels[price]
+            offset = 0
+            for o in lvl.orders:
+                size = min(order.size, o.size)
+                order.size -= size
+                o.size -= size
+                lvl.volume -= size
+
+                self.on_event('trade', Trade(order.id, o.id, size, o.price))
+
                 if o.size == 0:
                     offset += 1
+
+                if order.size == 0:
+                    break
+
+            if offset:
+                lvl.orders = lvl.orders[offset:]
+
+            if not lvl.volume:
+                self.bids.remove(price)
+                del self.levels[price]
+
+            if order.size == 0:
                 break
 
-        for i in range(offset):
-            self.bids.pop(0)
-
         if order.size > 0:
-            self.asks.add(order)
+            if order.price in self.asks:
+                self.levels[order.price].append(order)
+            else:
+                self.asks.add(order.price)
+                self.levels[order.price] = Level([order])
             self.orders[order.id] = order
             self.on_event('new', order)
 
     def cancel_order(self, orderid):
         order = self.orders.pop(orderid)
         if order.side == Side.BUY:
-            self.bids.remove(order)
+            self.bids.remove(order.price)
         else:
-            self.asks.remove(order)
+            self.asks.remove(order.price)
+        self.levels[order.price].orders.remove(order)
+        self.levels[order.price].volume -= order.size
         self.on_event('cancel', order)
