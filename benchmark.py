@@ -9,16 +9,17 @@ class TestOrderBook(OrderBook):
         print(evtname, evt.price, evt.size)
 
 
-def gen_random_order():
+def gen_random_order(i):
     return Order(
+        i,
         random.choice([Side.BUY, Side.SELL]),
         random.randrange(50, 150),
-        random.randrange(1000)
+        random.randrange(1, 1000)
     )
 
 
 def gen_tests(n):
-    return [gen_random_order() for i in range(n)]
+    return [gen_random_order(i) for i in range(n)]
 
 
 if not os.path.exists('test.data'):
@@ -32,7 +33,10 @@ def bench(n):
     book = OrderBook()
     length = len(tests)
     for i in range(n):
-        book.limit_order(tests[i % length])
+        o = tests[i % length]
+        book.limit_order(Order(
+            o.id, o.side, o.price, o.original_size
+        ))
 
 
 if __name__ == '__main__':

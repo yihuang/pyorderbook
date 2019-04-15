@@ -1,85 +1,128 @@
 from orderbook import Order, Side, Trade, OrderBook
 
 
-class TestOrderBook(OrderBook):
+def better_price(p1, p2, side):
+    if side == Side.BUY:
+        return p1 <= p2
+    else:
+        return p1 >= p2
+
+
+class Engine:
     def __init__(self):
-        super().__init__()
+        self.orderbook = OrderBook()
+        self.orderbook.on_event = self.on_event
         self.trades = []
+        self._next_order_id = 0
+        self.all_orders = {}
+
+    def next_order_id(self):
+        n = self._next_order_id
+        self._next_order_id += 1
+        return n
+
+    def limit_order(self, side, price, amount):
+        o = Order(self.next_order_id(), side, price, amount)
+        self.all_orders[o.id] = o
+        self.orderbook.limit_order(o)
+        self.validate()
+        return o
+
+    def cancel_order(self, orderid):
+        o = self.orderbook.cancel_order(
+            self.all_orders[orderid].price,
+            orderid
+        )
+        self.validate()
+        return o
 
     def on_event(self, name, evt):
         if name == 'trade':
             self.trades.append(evt)
 
+    def validate(self):
+        book = self.orderbook
+        assert not book.bids or not book.asks or book.bids.max() < book.asks.min(), \
+            'bids asks shouldn\'t cross'
+        assert all(trade.price == self.all_orders[trade.makerid].price
+                   for trade in self.trades), \
+            'trade price equals to maker price'
+        assert all(better_price(trade.price,
+                                self.all_orders[trade.takerid].price,
+                                self.all_orders[trade.takerid].side)
+                   for trade in self.trades), \
+            'trade price equal or better than taker price'
+        assert all(order.price == price
+                   for price, lvl in book.levels.items()
+                   for order in lvl.orders), \
+            'level price is correct'
+        assert all(sum(o.size for o in lvl.orders) == lvl.volume
+                   for price, lvl in book.levels.items()), \
+            'level volume is correct'
+
 
 def test_simple():
-    book = OrderBook()
-    book.limit_order(Order(Side.BUY, 100, 100))
+    engine = Engine()
+    book = engine.orderbook
+    engine.limit_order(Side.BUY, 100, 100)
     assert book.bids.min() == 100
-    book.limit_order(Order(Side.SELL, 100, 100))
+    engine.limit_order(Side.SELL, 100, 100)
     assert not book.bids
 
-    book.limit_order(Order(Side.SELL, 100, 100))
+    engine.limit_order(Side.SELL, 100, 100)
     assert book.asks.min() == 100
-    book.limit_order(Order(Side.BUY, 100, 100))
+    engine.limit_order(Side.BUY, 100, 100)
     assert not book.asks
 
 
 def test_order():
-    book = OrderBook()
-    book.limit_order(Order(Side.BUY, 100, 100))
-    book.limit_order(Order(Side.BUY, 101, 100))
-    book.limit_order(Order(Side.BUY, 102, 100))
-    book.limit_order(Order(Side.SELL, 100, 150))
-    assert book.bids.max() == 101
-    assert book.levels[101].volume == 50
+    engine = Engine()
+    engine.limit_order(Side.BUY, 100, 100)
+    engine.limit_order(Side.BUY, 101, 100)
+    engine.limit_order(Side.BUY, 102, 100)
+    engine.limit_order(Side.SELL, 100, 150)
+    assert engine.orderbook.bids.max() == 101
+    assert engine.orderbook.levels[101].volume == 50
 
 
 def test_depth():
-    book = OrderBook()
-    book.limit_order(Order(Side.BUY, 100, 100))
-    book.limit_order(Order(Side.BUY, 100, 50))
-    book.limit_order(Order(Side.BUY, 101, 100))
-    book.limit_order(Order(Side.BUY, 102, 100))
+    engine = Engine()
+    book = engine.orderbook
+    engine.limit_order(Side.BUY, 100, 100)
+    engine.limit_order(Side.BUY, 100, 50)
+    engine.limit_order(Side.BUY, 101, 100)
+    engine.limit_order(Side.BUY, 102, 100)
     assert book.levels[100].volume == 150
     assert book.levels[101].volume == 100
     assert book.levels[102].volume == 100
-    book.limit_order(Order(Side.SELL, 100, 150))
+    engine.limit_order(Side.SELL, 100, 150)
     assert 102 not in book.levels
     assert book.levels[101].volume == 50
 
 
 def test_trade_event():
-    book = TestOrderBook()
-    book.limit_order(Order(Side.BUY, 100, 100))
-    book.limit_order(Order(Side.BUY, 100, 50))
-    book.limit_order(Order(Side.BUY, 101, 100))
-    book.limit_order(Order(Side.BUY, 102, 100))
-    book.limit_order(Order(Side.SELL, 100, 150))
+    engine = Engine()
+    engine.limit_order(Side.BUY, 100, 100)
+    engine.limit_order(Side.BUY, 100, 50)
+    o3 = engine.limit_order(Side.BUY, 101, 100)
+    o4 = engine.limit_order(Side.BUY, 102, 100)
+    o5 = engine.limit_order(Side.SELL, 100, 150)
 
-    assert tuple(book.trades) == (
-        Trade(5, 4, 100, 102),
-        Trade(5, 3, 50, 101)
+    assert tuple(engine.trades) == (
+        Trade(o5.id, o4.id, 100, 102),
+        Trade(o5.id, o3.id, 50, 101)
     )
 
 
 def test_cancel():
-    book = OrderBook()
-    o = Order(Side.BUY, 100, 50)
-    book.limit_order(o)
-    book.cancel_order(o.id)
+    engine = Engine()
+    book = engine.orderbook
+    o = engine.limit_order(Side.BUY, 100, 50)
+    engine.cancel_order(o.id)
     assert not book.bids
 
-    o = Order(Side.BUY, 100, 100)
-    book.limit_order(o)
-    book.limit_order(Order(Side.BUY, 101, 100))
-    book.cancel_order(o.id)
+    o = engine.limit_order(Side.BUY, 100, 100)
+    engine.limit_order(Side.BUY, 101, 100)
+    engine.cancel_order(o.id)
     assert book.bids.max() == 101
     assert book.levels[101].volume == 100
-
-
-if __name__ == '__main__':
-    test_simple()
-    test_order()
-    test_depth()
-    test_trade_event()
-    test_cancel()

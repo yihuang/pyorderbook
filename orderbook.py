@@ -1,10 +1,8 @@
 import time
-from typing import Dict
 from enum import IntEnum
 from typing import NamedTuple
 from pyroaring import BitMap
 
-from dataclasses import dataclass
 from decimal import Decimal
 
 
@@ -17,17 +15,12 @@ class Side(IntEnum):
     SELL = 1
 
 
-@dataclass
 class Order:
     __slots__ = ('id', 'price', 'original_size', 'size', 'side', 'order_time')
-    id: OrderId
-    price: Price
-    original_size: Decimal
-    size: Decimal
-    side: Side
-    order_time: float  # 进入orderbook时间
 
-    def __init__(self, side, price, size):
+    def __init__(self, id: OrderId, side: Side, price: Price, size: Decimal):
+        assert size > 0, 'invalid size'
+        self.id = id
         self.price = price
         self.original_size = self.size = size
         self.side = side
@@ -52,36 +45,22 @@ class Level:
         self.volume += o.size
 
 
-@dataclass
 class OrderBook:
     'sorted by price/time'
-    bids: BitMap
-    asks: BitMap
-    levels: Dict[Price, Level]
-    orders: Dict[OrderId, Order]
-    now: float
+    __slots__ = ('bids', 'asks', 'on_event',
+                 'levels', 'now')
 
     def __init__(self):
-        self._next_order_id = 0
         self.bids = BitMap()
         self.asks = BitMap()
         self.levels = {}
-        self.orders = {}
         self.now = 0
-
-    def next_order_id(self):
-        self._next_order_id = self._next_order_id + 1
-        return self._next_order_id
-
-    def on_event(self, evtname, evt):
-        pass
+        self.on_event = lambda name, evt: ...
 
     def limit_order(self, order: Order):
-        if order.size == 0:
-            return
-        # self.now = time.time()
-        # order.order_time = self.now
-        order.id = self.next_order_id()
+        assert order.size > 0, 'invalid order'
+        self.now = time.time()
+        order.order_time = self.now
         if order.side == Side.BUY:
             self.limit_order_buy(order)
         else:
@@ -113,7 +92,7 @@ class OrderBook:
             if offset:
                 lvl.orders = lvl.orders[offset:]
 
-            if not lvl.volume:
+            if lvl.volume == 0:
                 self.asks.discard(price)
                 del self.levels[price]
 
@@ -126,7 +105,6 @@ class OrderBook:
             else:
                 self.bids.add(order.price)
                 self.levels[order.price] = Level([order])
-            self.orders[order.id] = order
             self.on_event('new', order)
 
     def limit_order_sell(self, order: Order):
@@ -155,7 +133,7 @@ class OrderBook:
             if offset:
                 lvl.orders = lvl.orders[offset:]
 
-            if not lvl.volume:
+            if lvl.volume == 0:
                 self.bids.discard(price)
                 del self.levels[price]
 
@@ -168,15 +146,16 @@ class OrderBook:
             else:
                 self.asks.add(order.price)
                 self.levels[order.price] = Level([order])
-            self.orders[order.id] = order
             self.on_event('new', order)
 
-    def cancel_order(self, orderid):
-        order = self.orders.pop(orderid)
-        if order.side == Side.BUY:
-            self.bids.discard(order.price)
-        else:
-            self.asks.discard(order.price)
-        self.levels[order.price].orders.remove(order)
-        self.levels[order.price].volume -= order.size
-        self.on_event('cancel', order)
+    def cancel_order(self, price, orderid):
+        lvl = self.levels[price]
+        for o in lvl.orders:
+            if o.id == orderid:
+                lvl.orders.remove(o)
+                lvl.volume -= o.size
+                if lvl.volume == 0:
+                    del self.levels[price]
+                    (self.bids if o.side == Side.BUY else self.asks).discard(price)
+                self.on_event('cancel', o)
+                return o
