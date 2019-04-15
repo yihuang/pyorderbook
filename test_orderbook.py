@@ -1,8 +1,9 @@
-from orderbook import Order, Side, Trade, OrderBook
+import pyximport; pyximport.install()
+from orderbook import Order, BUY, SELL, Trade, OrderBook
 
 
 def better_price(p1, p2, side):
-    if side == Side.BUY:
+    if side == BUY:
         return p1 <= p2
     else:
         return p1 >= p2
@@ -44,13 +45,13 @@ class Engine:
         book = self.orderbook
         assert not book.bids or not book.asks or book.bids.max() < book.asks.min(), \
             'bids asks shouldn\'t cross'
-        assert all(trade.price == self.all_orders[trade.makerid].price
-                   for trade in self.trades), \
+        assert all(price == self.all_orders[makerid].price
+                   for _, makerid, _, price in self.trades), \
             'trade price equals to maker price'
-        assert all(better_price(trade.price,
-                                self.all_orders[trade.takerid].price,
-                                self.all_orders[trade.takerid].side)
-                   for trade in self.trades), \
+        assert all(better_price(price,
+                                self.all_orders[takerid].price,
+                                self.all_orders[takerid].side)
+                   for takerid, _, _, price in self.trades), \
             'trade price equal or better than taker price'
         assert all(order.price == price
                    for price, lvl in book.levels.items()
@@ -64,23 +65,23 @@ class Engine:
 def test_simple():
     engine = Engine()
     book = engine.orderbook
-    engine.limit_order(Side.BUY, 100, 100)
+    engine.limit_order(BUY, 100, 100)
     assert book.bids.min() == 100
-    engine.limit_order(Side.SELL, 100, 100)
+    engine.limit_order(SELL, 100, 100)
     assert not book.bids
 
-    engine.limit_order(Side.SELL, 100, 100)
+    engine.limit_order(SELL, 100, 100)
     assert book.asks.min() == 100
-    engine.limit_order(Side.BUY, 100, 100)
+    engine.limit_order(BUY, 100, 100)
     assert not book.asks
 
 
 def test_order():
     engine = Engine()
-    engine.limit_order(Side.BUY, 100, 100)
-    engine.limit_order(Side.BUY, 101, 100)
-    engine.limit_order(Side.BUY, 102, 100)
-    engine.limit_order(Side.SELL, 100, 150)
+    engine.limit_order(BUY, 100, 100)
+    engine.limit_order(BUY, 101, 100)
+    engine.limit_order(BUY, 102, 100)
+    engine.limit_order(SELL, 100, 150)
     assert engine.orderbook.bids.max() == 101
     assert engine.orderbook.levels[101].volume == 50
 
@@ -88,41 +89,41 @@ def test_order():
 def test_depth():
     engine = Engine()
     book = engine.orderbook
-    engine.limit_order(Side.BUY, 100, 100)
-    engine.limit_order(Side.BUY, 100, 50)
-    engine.limit_order(Side.BUY, 101, 100)
-    engine.limit_order(Side.BUY, 102, 100)
+    engine.limit_order(BUY, 100, 100)
+    engine.limit_order(BUY, 100, 50)
+    engine.limit_order(BUY, 101, 100)
+    engine.limit_order(BUY, 102, 100)
     assert book.levels[100].volume == 150
     assert book.levels[101].volume == 100
     assert book.levels[102].volume == 100
-    engine.limit_order(Side.SELL, 100, 150)
+    engine.limit_order(SELL, 100, 150)
     assert 102 not in book.levels
     assert book.levels[101].volume == 50
 
 
 def test_trade_event():
     engine = Engine()
-    engine.limit_order(Side.BUY, 100, 100)
-    engine.limit_order(Side.BUY, 100, 50)
-    o3 = engine.limit_order(Side.BUY, 101, 100)
-    o4 = engine.limit_order(Side.BUY, 102, 100)
-    o5 = engine.limit_order(Side.SELL, 100, 150)
+    engine.limit_order(BUY, 100, 100)
+    engine.limit_order(BUY, 100, 50)
+    o3 = engine.limit_order(BUY, 101, 100)
+    o4 = engine.limit_order(BUY, 102, 100)
+    o5 = engine.limit_order(SELL, 100, 150)
 
     assert tuple(engine.trades) == (
-        Trade(o5.id, o4.id, 100, 102),
-        Trade(o5.id, o3.id, 50, 101)
+        (o5.id, o4.id, 100, 102),
+        (o5.id, o3.id, 50, 101)
     )
 
 
 def test_cancel():
     engine = Engine()
     book = engine.orderbook
-    o = engine.limit_order(Side.BUY, 100, 50)
+    o = engine.limit_order(BUY, 100, 50)
     engine.cancel_order(o.id)
     assert not book.bids
 
-    o = engine.limit_order(Side.BUY, 100, 100)
-    engine.limit_order(Side.BUY, 101, 100)
+    o = engine.limit_order(BUY, 100, 100)
+    engine.limit_order(BUY, 101, 100)
     engine.cancel_order(o.id)
     assert book.bids.max() == 101
     assert book.levels[101].volume == 100

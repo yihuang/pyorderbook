@@ -1,7 +1,8 @@
+import pyximport; pyximport.install()
 import os
 import random
 import pickle
-from orderbook import Order, Side, OrderBook
+from orderbook import Order, BUY, SELL, OrderBook
 
 
 class TestOrderBook(OrderBook):
@@ -12,7 +13,7 @@ class TestOrderBook(OrderBook):
 def gen_random_order(i):
     return Order(
         i,
-        random.choice([Side.BUY, Side.SELL]),
+        random.choice([BUY, SELL]),
         random.randrange(50, 150),
         random.randrange(1, 1000)
     )

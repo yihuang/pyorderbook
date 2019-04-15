@@ -1,3 +1,5 @@
+# cython: language_level=3, boundscheck=False
+cimport cython
 import time
 from enum import IntEnum
 from typing import NamedTuple
@@ -10,15 +12,21 @@ OrderId = int
 Price = int
 
 
-class Side(IntEnum):
+cpdef enum:
     BUY = 0
     SELL = 1
 
 
-class Order:
-    __slots__ = ('id', 'price', 'original_size', 'size', 'side', 'order_time')
+@cython.freelist(100000)
+cdef class Order:
+    cdef public int id
+    cdef public int price
+    cdef public int original_size
+    cdef public int size
+    cdef public int side
+    cdef public int order_time
 
-    def __init__(self, id: OrderId, side: Side, price: Price, size: Decimal):
+    def __init__(self, int id, int side, int price, int size):
         assert size > 0, 'invalid size'
         self.id = id
         self.price = price
@@ -26,29 +34,27 @@ class Order:
         self.side = side
 
 
-class Trade(NamedTuple):
-    takerid: OrderId
-    makerid: OrderId
-    size: Decimal
-    price: Price
+@cython.freelist(100000)
+cdef class Level:
+    cdef public list orders
+    cdef public int volume
 
+    def __init__(self, Order o):
+        self.orders = [o]
+        self.volume = o.size
 
-class Level:
-    __slots__ = ('orders', 'volume')
-
-    def __init__(self, orders=None):
-        self.orders = orders or []
-        self.volume = sum(o.size for o in self.orders)
-
-    def append(self, o):
+    def append(self, Order o):
         self.orders.append(o)
         self.volume += o.size
 
 
-class OrderBook:
+cdef class OrderBook:
     'sorted by price/time'
-    __slots__ = ('bids', 'asks', 'on_event',
-                 'levels', 'now')
+    cdef public object bids
+    cdef public object asks
+    cdef public object on_event
+    cdef public dict levels
+    cdef public int now
 
     def __init__(self):
         self.bids = BitMap()
@@ -57,16 +63,19 @@ class OrderBook:
         self.now = 0
         self.on_event = lambda name, evt: ...
 
-    def limit_order(self, order: Order):
+    def limit_order(self, Order order):
         assert order.size > 0, 'invalid order'
         self.now = time.time()
         order.order_time = self.now
-        if order.side == Side.BUY:
+        if order.side == BUY:
             self.limit_order_buy(order)
         else:
             self.limit_order_sell(order)
 
-    def limit_order_buy(self, order: Order):
+    def limit_order_buy(self, Order order):
+        cdef Level lvl
+        cdef Order o
+        cdef int size, price, offset
         while self.asks:
             price = self.asks.min()
             if order.price < price:
@@ -81,7 +90,7 @@ class OrderBook:
                 o.size -= size
                 lvl.volume -= size
 
-                self.on_event('trade', Trade(order.id, o.id, size, o.price))
+                self.on_event('trade', (order.id, o.id, size, o.price))
 
                 if o.size == 0:
                     offset += 1
@@ -104,10 +113,13 @@ class OrderBook:
                 self.levels[order.price].append(order)
             else:
                 self.bids.add(order.price)
-                self.levels[order.price] = Level([order])
+                self.levels[order.price] = Level(order)
             self.on_event('new', order)
 
-    def limit_order_sell(self, order: Order):
+    def limit_order_sell(self, Order order):
+        cdef Level lvl
+        cdef Order o
+        cdef int size, price, offset
         while self.bids:
             price = self.bids.max()
             if order.price > price:
@@ -122,7 +134,7 @@ class OrderBook:
                 o.size -= size
                 lvl.volume -= size
 
-                self.on_event('trade', Trade(order.id, o.id, size, o.price))
+                self.on_event('trade', (order.id, o.id, size, o.price))
 
                 if o.size == 0:
                     offset += 1
@@ -145,10 +157,12 @@ class OrderBook:
                 self.levels[order.price].append(order)
             else:
                 self.asks.add(order.price)
-                self.levels[order.price] = Level([order])
+                self.levels[order.price] = Level(order)
             self.on_event('new', order)
 
-    def cancel_order(self, price, orderid):
+    def cancel_order(self, int price, int orderid):
+        cdef Level lvl
+        cdef Order o
         lvl = self.levels[price]
         for o in lvl.orders:
             if o.id == orderid:
@@ -156,6 +170,6 @@ class OrderBook:
                 lvl.volume -= o.size
                 if lvl.volume == 0:
                     del self.levels[price]
-                    (self.bids if o.side == Side.BUY else self.asks).discard(price)
+                    (self.bids if o.side == BUY else self.asks).discard(price)
                 self.on_event('cancel', o)
                 return o
