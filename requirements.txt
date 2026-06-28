@@ -1,4 +1,10 @@
-pyroaring==0.2.6
-pytest==4.4.0
-hypothesis==4.16.0
-Cython==0.29.7
+cython==3.2.6
+hypothesis==6.155.7
+iniconfig==2.3.0
+packaging==26.2
+pluggy==1.6.0
+pygments==2.20.0
+pyroaring==1.1.0
+pytest==9.1.1
+setuptools==82.0.1
+sortedcontainers==2.4.0
