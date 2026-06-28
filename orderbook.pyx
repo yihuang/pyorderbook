@@ -163,7 +163,9 @@ cdef class OrderBook:
     def cancel_order(self, int price, int orderid):
         cdef Level lvl
         cdef Order o
-        lvl = self.levels[price]
+        lvl = self.levels.get(price)
+        if lvl is None:
+            return None
         for o in lvl.orders:
             if o.id == orderid:
                 lvl.orders.remove(o)
